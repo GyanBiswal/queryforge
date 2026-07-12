@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # Storage
+    upload_dir: str = "./uploads"
+    max_upload_size_mb: int = 25
+    allowed_extensions: set[str] = {".pdf", ".txt", ".docx"}
+
+    # Database
+    database_url: str = "sqlite:///./queryforge.db"
+
 
 @lru_cache
 def get_settings() -> Settings:
