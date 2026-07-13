@@ -12,6 +12,9 @@ class DocumentStatus(str, PyEnum):
     UPLOADED = "uploaded"
     PARSING = "parsing"
     PARSED = "parsed"
+    CHUNKING = "chunking"
+    EMBEDDING = "embedding"
+    INDEXED = "indexed"
     FAILED = "failed"
 
 

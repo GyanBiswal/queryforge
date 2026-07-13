@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./queryforge.db"
 
+    # Embeddings
+    google_api_key: str = ""
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dimensions: int = 768
+
+    # Chunking
+    chunk_size: int = 1000
+    chunk_overlap: int = 150
+
+    # Vector store
+    chroma_persist_dir: str = "./chroma_data"
+
 
 @lru_cache
 def get_settings() -> Settings:

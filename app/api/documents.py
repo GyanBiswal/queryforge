@@ -11,6 +11,23 @@ from app.db.models import Document, DocumentStatus
 from app.ingestion.parsers import extract_text, ParsingError
 from app.schemas.document import DocumentResponse, DocumentUploadResponse
 
+from app.ingestion.chunker import chunk_text
+from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
+from app.db.vector_store import add_chunks
+
+from app.db.vector_store import query_similar
+from app.ingestion.embeddings import EmbeddingProvider
+
+embedder = EmbeddingProvider()
+q_emb = embedder.embed_query("your test question about the doc's content")
+results = query_similar(q_emb, top_k=3)
+print(results["documents"])
+
+embedder = EmbeddingProvider()
+q_emb = embedder.embed_query("your test question about the doc's content")
+results = query_similar(q_emb, top_k=3)
+print(results["documents"])
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -63,25 +80,41 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
     try:
         doc.status = DocumentStatus.PARSING
         db.commit()
-
         text = extract_text(file_path, doc.content_type)
         doc.extracted_chars = len(text)
-        doc.status = DocumentStatus.PARSED
-        logger.info("Parsed document %s (%d chars)", doc.id, len(text))
 
-    except ParsingError as exc:
+        doc.status = DocumentStatus.CHUNKING
+        db.commit()
+        chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
+
+        doc.status = DocumentStatus.EMBEDDING
+        db.commit()
+        embedder = EmbeddingProvider()
+        embeddings = [embedder.embed_document_chunk(c) for c in chunks]
+
+        add_chunks(doc.id, chunks, embeddings, doc.filename)
+
+        doc.status = DocumentStatus.INDEXED
+        logger.info("Indexed document %s: %d chunks", doc.id, len(chunks))
+
+    except (ParsingError, EmbeddingError) as exc:
         doc.status = DocumentStatus.FAILED
         doc.error_message = str(exc)
-        logger.warning("Parsing failed for document %s: %s", doc.id, exc)
+        logger.warning("Processing failed for document %s: %s", doc.id, exc)
+
 
     db.commit()
 
     return DocumentUploadResponse(
-        id=doc.id,
-        filename=doc.filename,
-        status=doc.status.value,
-        message="Document processed" if doc.status == DocumentStatus.PARSED else doc.error_message,
-    )
+    id=doc.id,
+    filename=doc.filename,
+    status=doc.status.value,
+    message=(
+        "Document processed successfully"
+        if doc.status == DocumentStatus.INDEXED
+        else (doc.error_message or "Processing completed")
+    ),
+)
 
 
 @router.get("", response_model=list[DocumentResponse])
