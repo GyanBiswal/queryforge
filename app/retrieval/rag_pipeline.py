@@ -4,6 +4,8 @@ from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
 from app.db.vector_store import query_similar
 from app.schemas.query import SourceChunk, QueryResponse
 from app.llm.provider import get_llm_provider, LLMError
+import json
+from typing import Iterator
 
 
 logger = logging.getLogger(__name__)
@@ -95,3 +97,56 @@ def _build_context(relevant: list[dict]) -> tuple[str, list[SourceChunk]]:
             )
         )
     return "\n\n".join(context_parts), sources
+
+
+def stream_answer(question: str) -> Iterator[str]:
+    """
+    SSE generator. Yields formatted 'data: ...\n\n' events:
+    - a sequence of {"type": "token", "content": "..."} events as text arrives
+    - one final {"type": "done", "sources": [...], "grounded": bool} event
+
+    Retrieval happens synchronously before the first byte is sent — RAG
+    requires the context before generation can even start, so there's no
+    way to stream retrieval itself. The streaming only applies to generation.
+    """
+    settings = get_settings()
+    embedder = EmbeddingProvider()
+
+    try:
+        query_embedding = embedder.embed_query(question)
+    except EmbeddingError:
+        logger.exception("Failed to embed query")
+        yield _sse_event({"type": "done", "answer": NO_CONTEXT_ANSWER, "sources": [], "grounded": False})
+        return
+
+    results = query_similar(query_embedding, top_k=settings.retrieval_top_k)
+    relevant = _filter_by_threshold(results, settings.similarity_distance_threshold)
+
+    if not relevant:
+        yield _sse_event({"type": "done", "answer": NO_CONTEXT_ANSWER, "sources": [], "grounded": False})
+        return
+
+    context, sources = _build_context(relevant)
+    prompt = SYSTEM_PROMPT_TEMPLATE.format(context=context, question=question)
+
+    full_answer = ""
+    try:
+        llm = get_llm_provider()
+        for token in llm.stream(prompt):
+            full_answer += token
+            yield _sse_event({"type": "token", "content": token})
+    except LLMError:
+        logger.exception("Streaming generation failed")
+        yield _sse_event({"type": "error", "message": "Something went wrong generating an answer."})
+        return
+
+    yield _sse_event({
+        "type": "done",
+        "answer": full_answer,
+        "sources": [s.model_dump() for s in sources],
+        "grounded": True,
+    })
+
+
+def _sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"

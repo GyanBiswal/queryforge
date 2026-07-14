@@ -16,3 +16,7 @@ class QueryResponse(BaseModel):
     answer: str
     sources: list[SourceChunk]
     grounded: bool
+
+class QueryRequest(BaseModel):
+    question: str
+    stream: bool = False
