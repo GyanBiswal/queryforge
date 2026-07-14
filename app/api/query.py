@@ -21,7 +21,7 @@ def query(request: QueryRequest, db: Session = Depends(get_db)):
             media_type="text/event-stream",
         )
 
-    result = answer_question(request.question)
+    result, _ = answer_question(request.question)
     _log_query(db, request.question, result.answer, result.sources, result.grounded)
     return result
 

@@ -34,13 +34,23 @@ class Document(Base):
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
 
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
 class QueryLog(Base):
     __tablename__ = "query_logs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    conversation_id: Mapped[str | None] = mapped_column(String, nullable=True)  # None = one-off /query
     question: Mapped[str] = mapped_column(String, nullable=False)
+    contextualized_question: Mapped[str | None] = mapped_column(String, nullable=True)
     answer: Mapped[str] = mapped_column(String, nullable=False)
-    sources: Mapped[str] = mapped_column(String, nullable=False)  # JSON-encoded list
+    sources: Mapped[str] = mapped_column(String, nullable=False)
     was_grounded: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)

@@ -2,6 +2,7 @@ import logging
 from app.core.config import get_settings
 from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
 from app.db.vector_store import query_similar
+from app.retrieval.contextualizer import contextualize_question
 from app.schemas.query import SourceChunk, QueryResponse
 from app.llm.provider import get_llm_provider, LLMError
 import json
@@ -33,26 +34,32 @@ Question: {question}
 Answer:"""
 
 
-def answer_question(question: str) -> QueryResponse:
+def answer_question(question: str, history: list[dict] | None = None) -> tuple[QueryResponse, str]:
+    """
+    Returns (response, contextualized_question) — the caller needs the
+    contextualized version to store in QueryLog for debugging/audit purposes.
+    """
     settings = get_settings()
-    embedder = EmbeddingProvider()
 
+    contextualized = contextualize_question(question, history or [])
+
+    embedder = EmbeddingProvider()
     try:
-        query_embedding = embedder.embed_query(question)
+        query_embedding = embedder.embed_query(contextualized)
     except EmbeddingError:
         logger.exception("Failed to embed query")
-        return QueryResponse(answer=NO_CONTEXT_ANSWER, sources=[], grounded=False)
+        return QueryResponse(answer=NO_CONTEXT_ANSWER, sources=[], grounded=False), contextualized
 
     results = query_similar(query_embedding, top_k=settings.retrieval_top_k)
-    logger.info("Raw retrieval distances: %s", results["distances"][0])
-
     relevant = _filter_by_threshold(results, settings.similarity_distance_threshold)
-    logger.info("Chunks passing threshold (%.2f): %d", settings.similarity_distance_threshold, len(relevant))
 
     if not relevant:
-        return QueryResponse(answer=NO_CONTEXT_ANSWER, sources=[], grounded=False)
+        return QueryResponse(answer=NO_CONTEXT_ANSWER, sources=[], grounded=False), contextualized
 
     context, sources = _build_context(relevant)
+    # Note: we prompt the LLM with the ORIGINAL question, not the contextualized one —
+    # contextualization is purely a retrieval aid; the user's actual phrasing is what
+    # the final answer should respond to naturally.
     prompt = SYSTEM_PROMPT_TEMPLATE.format(context=context, question=question)
 
     try:
@@ -62,11 +69,10 @@ def answer_question(question: str) -> QueryResponse:
         logger.exception("Failed to generate answer")
         return QueryResponse(
             answer="Something went wrong generating an answer. Please try again.",
-            sources=[],
-            grounded=False,
-        )
+            sources=[], grounded=False,
+        ), contextualized
 
-    return QueryResponse(answer=answer, sources=sources, grounded=True)
+    return QueryResponse(answer=answer, sources=sources, grounded=True), contextualized
 
 
 def _filter_by_threshold(results: dict, threshold: float) -> list[dict]:
