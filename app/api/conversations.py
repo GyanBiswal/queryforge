@@ -13,9 +13,10 @@ from app.schemas.conversation import (
 )
 from app.schemas.query import QueryResponse
 from app.retrieval.rag_pipeline import answer_question
+from app.core.security import verify_api_key
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/conversations", tags=["conversations"])
+router = APIRouter(prefix="/conversations", tags=["conversations"], dependencies=[Depends(verify_api_key)])
 
 
 @router.post("", response_model=ConversationCreateResponse)

@@ -17,8 +17,11 @@ from app.db.vector_store import add_chunks
 
 from app.db.vector_store import query_similar
 
+from app.core.security import verify_api_key
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(verify_api_key)])
 
 CONTENT_TYPE_MAP = {
     ".pdf": "application/pdf",

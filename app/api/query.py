@@ -8,9 +8,11 @@ from app.db.database import get_db
 from app.db.models import QueryLog
 from app.schemas.query import QueryRequest, QueryResponse
 from app.retrieval.rag_pipeline import answer_question, stream_answer
+from app.core.security import verify_api_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/query", tags=["query"])
+router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(verify_api_key)])
 
 
 @router.post("", response_model=None)
