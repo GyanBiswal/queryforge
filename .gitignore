@@ -10,3 +10,4 @@ chroma_data/
 *.egg-info/
 uploads/
 *.db
+debug_query.py

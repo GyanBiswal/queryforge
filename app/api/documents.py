@@ -16,17 +16,6 @@ from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
 from app.db.vector_store import add_chunks
 
 from app.db.vector_store import query_similar
-from app.ingestion.embeddings import EmbeddingProvider
-
-embedder = EmbeddingProvider()
-q_emb = embedder.embed_query("your test question about the doc's content")
-results = query_similar(q_emb, top_k=3)
-print(results["documents"])
-
-embedder = EmbeddingProvider()
-q_emb = embedder.embed_query("your test question about the doc's content")
-results = query_similar(q_emb, top_k=3)
-print(results["documents"])
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])

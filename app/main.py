@@ -3,6 +3,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.database import init_db
 from app.api import documents
+from app.api import documents, query
 
 configure_logging()
 
@@ -23,6 +24,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
 
     app.include_router(documents.router)
+    app.include_router(query.router)
 
     return app
 

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Embeddings
     google_api_key: str = ""
-    embedding_model: str = "gemini-embedding-001"
+    embedding_model: str = "BAAI/bge-base-en-v1.5"
     embedding_dimensions: int = 768
 
     # Chunking
@@ -37,6 +37,15 @@ class Settings(BaseSettings):
 
     # Vector store
     chroma_persist_dir: str = "./chroma_data"
+
+    # RAG
+    llm_model: str = "gemini-2.5-flash"
+    retrieval_top_k: int = 5
+    similarity_distance_threshold: float = 0.8  # cosine distance; lower = stricter
+
+    llm_provider: str = "gemini"  # "gemini" or "groq"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
 
 
 @lru_cache

@@ -1,10 +1,13 @@
 import logging
-from google import genai
-from google.genai import types
+from sentence_transformers import SentenceTransformer
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# BGE models are trained with an instruction prefix for queries (not documents) —
+# this is BGE's version of the asymmetric task-type distinction we had with Gemini.
+QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
 class EmbeddingError(Exception):
@@ -13,34 +16,30 @@ class EmbeddingError(Exception):
 
 class EmbeddingProvider:
     """
-    Wraps the embedding model behind a simple interface, mirroring the
-    swappable-provider pattern we're using for the LLM. If we ever move to
-    a local sentence-transformers model, only this class changes.
+    Local embedding model — no API calls, no rate limits, no auth. Model
+    weights download once from Hugging Face on first run and are cached
+    locally (~/.cache/huggingface) after that.
     """
+
+    _model = None  # loaded once per process, shared across instances
 
     def __init__(self):
         settings = get_settings()
-        self.client = genai.Client(api_key=settings.google_api_key)
-        self.model = settings.embedding_model
-        self.dimensions = settings.embedding_dimensions
+        if EmbeddingProvider._model is None:
+            logger.info("Loading embedding model %s (first load may take a moment)...", settings.embedding_model)
+            EmbeddingProvider._model = SentenceTransformer(settings.embedding_model)
+        self.model = EmbeddingProvider._model
 
     def embed_document_chunk(self, text: str) -> list[float]:
-        return self._embed(text, task_type="RETRIEVAL_DOCUMENT")
+        return self._embed(text)
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed(text, task_type="RETRIEVAL_QUERY")
+        return self._embed(QUERY_INSTRUCTION + text)
 
-    def _embed(self, text: str, task_type: str) -> list[float]:
+    def _embed(self, text: str) -> list[float]:
         try:
-            result = self.client.models.embed_content(
-                model=self.model,
-                contents=text,
-                config=types.EmbedContentConfig(
-                    task_type=task_type,
-                    output_dimensionality=self.dimensions,
-                ),
-            )
-            return result.embeddings[0].values
+            embedding = self.model.encode(text, normalize_embeddings=True)
+            return embedding.tolist()
         except Exception as exc:
-            logger.exception("Embedding generation failed")
+            logger.exception("Local embedding generation failed")
             raise EmbeddingError(str(exc)) from exc
