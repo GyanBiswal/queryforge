@@ -11,6 +11,9 @@ from app.db.database import init_db
 from app.api import documents, query, conversations, admin
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.core.seed import seed_demo_document
+from app.db.database import SessionLocal
+
 configure_logging()
 
 
@@ -31,6 +34,12 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
     init_db()
+
+    db = SessionLocal()
+    try:
+        seed_demo_document(db)
+    finally:
+        db.close()
 
     @app.get("/health", tags=["system"])
     def health_check() -> dict:
