@@ -1,26 +1,19 @@
 import logging
-import shutil
 from pathlib import Path
-
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.database import get_db
+from app.core.security import verify_api_key
+from app.db.database import get_db, SessionLocal
 from app.db.models import Document, DocumentStatus
 from app.ingestion.parsers import extract_text, ParsingError
-from app.schemas.document import DocumentResponse, DocumentUploadResponse
-
 from app.ingestion.chunker import chunk_text
 from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
 from app.db.vector_store import add_chunks
-
-from app.db.vector_store import query_similar
-
-from app.core.security import verify_api_key
+from app.schemas.document import DocumentResponse, DocumentUploadResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/documents", tags=["documents"])
 router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(verify_api_key)])
 
 CONTENT_TYPE_MAP = {
@@ -31,7 +24,11 @@ CONTENT_TYPE_MAP = {
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
-async def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
     settings = get_settings()
     ext = Path(file.filename).suffix.lower()
 
@@ -41,7 +38,6 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
             detail=f"Unsupported file type '{ext}'. Allowed: {sorted(settings.allowed_extensions)}",
         )
 
-    # Read into memory once to check size, then write to disk
     contents = await file.read()
     size_mb = len(contents) / (1024 * 1024)
     if size_mb > settings.max_upload_size_mb:
@@ -52,12 +48,12 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
 
     doc = Document(
         filename=file.filename,
-        file_path="",  # set after we know the id
+        file_path="",
         content_type=CONTENT_TYPE_MAP[ext],
         status=DocumentStatus.UPLOADED,
     )
     db.add(doc)
-    db.flush()  # populates doc.id without committing yet
+    db.flush()
 
     doc_dir = Path(settings.upload_dir) / doc.id
     doc_dir.mkdir(parents=True, exist_ok=True)
@@ -68,11 +64,37 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
     db.commit()
     db.refresh(doc)
 
-    # Synchronous parsing for now — becomes a background job in a later phase
+    # Return immediately — processing happens in the background. The client
+    # polls GET /documents/{id} to track progress through the pipeline.
+    background_tasks.add_task(process_document, doc.id, file_path, doc.content_type)
+
+    return DocumentUploadResponse(
+        id=doc.id,
+        filename=doc.filename,
+        status=doc.status.value,
+        message="Document uploaded, processing in background. Poll GET /documents/{id} for status.",
+    )
+
+
+def process_document(document_id: str, file_path: Path, content_type: str) -> None:
+    """
+    Runs in the background AFTER the HTTP response has already been sent.
+    Needs its own DB session — the request-scoped `get_db()` session is
+    already closed by the time this runs, since the request/response cycle
+    has completed.
+    """
+    db = SessionLocal()
     try:
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            logger.error("Document %s not found for background processing", document_id)
+            return
+
+        settings = get_settings()
+
         doc.status = DocumentStatus.PARSING
         db.commit()
-        text = extract_text(file_path, doc.content_type)
+        text = extract_text(file_path, content_type)
         doc.extracted_chars = len(text)
 
         doc.status = DocumentStatus.CHUNKING
@@ -87,26 +109,25 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
         add_chunks(doc.id, chunks, embeddings, doc.filename)
 
         doc.status = DocumentStatus.INDEXED
-        logger.info("Indexed document %s: %d chunks", doc.id, len(chunks))
+        db.commit()
+        logger.info("Background processing complete for document %s: %d chunks", doc.id, len(chunks))
 
     except (ParsingError, EmbeddingError) as exc:
-        doc.status = DocumentStatus.FAILED
-        doc.error_message = str(exc)
-        logger.warning("Processing failed for document %s: %s", doc.id, exc)
-
-
-    db.commit()
-
-    return DocumentUploadResponse(
-    id=doc.id,
-    filename=doc.filename,
-    status=doc.status.value,
-    message=(
-        "Document processed successfully"
-        if doc.status == DocumentStatus.INDEXED
-        else (doc.error_message or "Processing completed")
-    ),
-)
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if doc:
+            doc.status = DocumentStatus.FAILED
+            doc.error_message = str(exc)
+            db.commit()
+        logger.warning("Background processing failed for document %s: %s", document_id, exc)
+    except Exception:
+        logger.exception("Unexpected error during background processing of document %s", document_id)
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if doc:
+            doc.status = DocumentStatus.FAILED
+            doc.error_message = "Unexpected processing error"
+            db.commit()
+    finally:
+        db.close()
 
 
 @router.get("", response_model=list[DocumentResponse])

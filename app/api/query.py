@@ -1,6 +1,6 @@
 import json
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -9,22 +9,22 @@ from app.db.models import QueryLog
 from app.schemas.query import QueryRequest, QueryResponse
 from app.retrieval.rag_pipeline import answer_question, stream_answer
 from app.core.security import verify_api_key
+from app.core.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/query", tags=["query"])
-router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(prefix="/query", tags=["query"], dependencies=[Depends(verify_api_key)])
 
 
 @router.post("", response_model=None)
-def query(request: QueryRequest, db: Session = Depends(get_db)):
-    if request.stream:
+@limiter.limit("20/minute;300/day")
+def query(request: Request, body: QueryRequest, db: Session = Depends(get_db)):
+    if body.stream:
         return StreamingResponse(
-            _stream_and_log(request.question, db),
+            _stream_and_log(body.question, db),
             media_type="text/event-stream",
         )
-
-    result, _ = answer_question(request.question)
-    _log_query(db, request.question, result.answer, result.sources, result.grounded)
+    result, _ = answer_question(body.question)
+    _log_query(db, body.question, result.answer, result.sources, result.grounded)
     return result
 
 

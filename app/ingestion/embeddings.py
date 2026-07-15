@@ -1,12 +1,11 @@
 import logging
+import threading
 from sentence_transformers import SentenceTransformer
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# BGE models are trained with an instruction prefix for queries (not documents) —
-# this is BGE's version of the asymmetric task-type distinction we had with Gemini.
 QUERY_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
@@ -15,19 +14,23 @@ class EmbeddingError(Exception):
 
 
 class EmbeddingProvider:
-    """
-    Local embedding model — no API calls, no rate limits, no auth. Model
-    weights download once from Hugging Face on first run and are cached
-    locally (~/.cache/huggingface) after that.
-    """
-
-    _model = None  # loaded once per process, shared across instances
+    _model = None
+    _model_lock = threading.Lock()   # guards first-time model loading
+    _inference_lock = threading.Lock()  # serializes actual encode() calls —
+    # PyTorch's MPS (Apple GPU) backend is not guaranteed thread-safe for
+    # concurrent inference. CPU-only backends usually tolerate this fine,
+    # but on Apple Silicon this crashed the process under real concurrent
+    # load in testing. Serializing here trades some throughput for stability
+    # — a real, deliberate, documented limitation of local GPU inference in a
+    # multi-threaded sync server, not something to code around further.
 
     def __init__(self):
         settings = get_settings()
         if EmbeddingProvider._model is None:
-            logger.info("Loading embedding model %s (first load may take a moment)...", settings.embedding_model)
-            EmbeddingProvider._model = SentenceTransformer(settings.embedding_model)
+            with EmbeddingProvider._model_lock:
+                if EmbeddingProvider._model is None:
+                    logger.info("Loading embedding model %s...", settings.embedding_model)
+                    EmbeddingProvider._model = SentenceTransformer(settings.embedding_model)
         self.model = EmbeddingProvider._model
 
     def embed_document_chunk(self, text: str) -> list[float]:
@@ -38,7 +41,8 @@ class EmbeddingProvider:
 
     def _embed(self, text: str) -> list[float]:
         try:
-            embedding = self.model.encode(text, normalize_embeddings=True)
+            with EmbeddingProvider._inference_lock:
+                embedding = self.model.encode(text, normalize_embeddings=True)
             return embedding.tolist()
         except Exception as exc:
             logger.exception("Local embedding generation failed")
