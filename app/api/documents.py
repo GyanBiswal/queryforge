@@ -9,7 +9,7 @@ from app.db.database import get_db, SessionLocal
 from app.db.models import Document, DocumentStatus
 from app.ingestion.parsers import extract_text, ParsingError
 from app.ingestion.chunker import chunk_text
-from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
+from app.ingestion.embeddings import get_embedding_provider, EmbeddingError
 from app.db.vector_store import add_chunks
 from app.schemas.document import DocumentResponse, DocumentUploadResponse
 from app.ingestion.embeddings import get_embedding_provider, EmbeddingError

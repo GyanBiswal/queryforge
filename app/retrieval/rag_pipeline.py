@@ -1,6 +1,6 @@
 import logging
 from app.core.config import get_settings
-from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
+from app.ingestion.embeddings import get_embedding_provider, EmbeddingError
 from app.db.vector_store import query_similar
 from app.retrieval.contextualizer import contextualize_question
 from app.schemas.query import SourceChunk, QueryResponse
