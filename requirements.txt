@@ -11,6 +11,7 @@ aiofiles==24.1.0
 chromadb==0.5.23
 google-genai==0.3.0
 groq==0.15.0
+# sentence-transformers/torch only loaded if EMBEDDING_PROVIDER=local (see app/ingestion/embeddings.py)
 sentence-transformers==3.3.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1

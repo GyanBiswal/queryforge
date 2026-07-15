@@ -7,6 +7,7 @@ from app.schemas.query import SourceChunk, QueryResponse
 from app.llm.provider import get_llm_provider, LLMError
 import json
 from typing import Iterator
+from app.ingestion.embeddings import get_embedding_provider, EmbeddingError
 
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,7 @@ def answer_question(question: str, history: list[dict] | None = None) -> tuple[Q
 
     contextualized = contextualize_question(question, history or [])
 
-    embedder = EmbeddingProvider()
+    embedder = get_embedding_provider()
     try:
         query_embedding = embedder.embed_query(contextualized)
     except EmbeddingError:
@@ -116,7 +117,7 @@ def stream_answer(question: str) -> Iterator[str]:
     way to stream retrieval itself. The streaming only applies to generation.
     """
     settings = get_settings()
-    embedder = EmbeddingProvider()
+    embedder = get_embedding_provider()
 
     try:
         query_embedding = embedder.embed_query(question)

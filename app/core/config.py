@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     seed_demo_data: bool = False
 
+    embedding_provider: str = "local"  # "local" or "gemini"
+
 
 @lru_cache
 def get_settings() -> Settings:

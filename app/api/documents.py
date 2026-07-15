@@ -12,6 +12,7 @@ from app.ingestion.chunker import chunk_text
 from app.ingestion.embeddings import EmbeddingProvider, EmbeddingError
 from app.db.vector_store import add_chunks
 from app.schemas.document import DocumentResponse, DocumentUploadResponse
+from app.ingestion.embeddings import get_embedding_provider, EmbeddingError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"], dependencies=[Depends(verify_api_key)])
@@ -103,7 +104,7 @@ def process_document(document_id: str, file_path: Path, content_type: str) -> No
 
         doc.status = DocumentStatus.EMBEDDING
         db.commit()
-        embedder = EmbeddingProvider()
+        embedder = get_embedding_provider()
         embeddings = [embedder.embed_document_chunk(c) for c in chunks]
 
         add_chunks(doc.id, chunks, embeddings, doc.filename)
