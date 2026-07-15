@@ -44,3 +44,15 @@ A Gemini model (`gemini-2.5-flash`) was deprecated for new API keys mid-developm
 **Fix:** Combined into one `@limiter.limit("20/minute;300/day")` decorator, and verified with a tight threshold (`2/minute`) and truly concurrent (backgrounded, parallel) requests rather than sequential ones — proving the limiter engages correctly once the test methodology itself was correct.
 
 **Lesson:** A test that "doesn't show the expected failure" isn't proof the feature is broken — it can just as easily mean the test itself isn't actually exercising the failure condition.
+
+## 5. Deploying local ML inference to a memory-constrained free host
+
+**Symptom:** The app worked flawlessly in local development and crashed with "Out of memory" during every deploy attempt to Render's free tier (512MB limit).
+
+**Diagnosis:** `sentence-transformers` (and its PyTorch dependency) alone requires 300–500MB just to import and load a model — before the rest of the application does anything. A free-tier memory budget simply cannot fit local ML inference alongside a running web server.
+
+**Fix:** Applied the same provider-abstraction pattern already used for the LLM layer to the embedding layer — a `get_embedding_provider()` factory choosing between a local `sentence-transformers` implementation (unlimited, free, used in development) and a hosted Gemini embedding API (memory-light, used in the deployed environment), selected via one environment variable. Critically, the local provider's heavy imports (`torch`, `sentence_transformers`) are deferred inside the factory's conditional branch, not at module level — so the production deployment never imports PyTorch into memory at all.
+
+**Compounding issues along the way:** a hardcoded container port instead of respecting the platform's dynamically assigned `$PORT`; a configuration file (`render.yaml`) that silently had zero effect because the service was connected via a plain public-repo URL rather than Render's Blueprint flow; and a fallback API credential that had gone unused (and unnoticed as invalid) until it became load-bearing in the new configuration.
+
+**Lesson:** Free-tier infrastructure has real, hard constraints that only surface at deploy time, not in local development where resources are abundant — and the correct fix mirrors a decision already made elsewhere in the system (provider abstraction), reinforcing that the pattern was worth investing in early rather than being scope creep.

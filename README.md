@@ -1,5 +1,8 @@
 # QueryForge
 
+## Live demo
+🔗 **https://queryforge-api.onrender.com/docs**
+
 A production-oriented Retrieval-Augmented Generation (RAG) platform for enterprise document Q&A — upload internal documents, ask questions in natural language, get grounded answers with cited sources.
 
 Built as a portfolio project to demonstrate real production RAG engineering: not just "call an LLM API," but grounding, retrieval refusal, swappable providers, multi-turn conversation handling, streaming, auth, and the concurrency issues that only show up under real load.
@@ -101,6 +104,7 @@ Documented honestly, not hidden:
 - **No schema migrations** — schema changes require dropping and recreating the SQLite DB in development; a real deployment would use Alembic.
 - **`BackgroundTasks` isn't a durable task queue** — if the server restarts mid-processing, an in-flight document is stuck at its last status with no automatic retry. Celery + Redis is the documented upgrade path for real horizontal scaling.
 - **No conversation summarization** — history is capped at the last 5 turns; a very long conversation degrades to only recalling recent context.
+- **Embedding provider differs between local dev and production** — local development uses a free, unlimited on-device model (`sentence-transformers`); the live deployment uses Gemini's hosted embedding API instead, because Render's free tier's 512MB memory limit can't fit PyTorch. This is a deliberate, environment-aware trade-off (see `EMBEDDING_PROVIDER` config) — worth knowing if comparing answer quality between local testing and the live demo, since two different embedding models are technically in play.
 
 See [docs/ENGINEERING_CHALLENGES.md](docs/ENGINEERING_CHALLENGES.md) for the debugging stories behind several of these.
 
